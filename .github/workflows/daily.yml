@@ -1,0 +1,48 @@
+name: Daily brief
+
+on:
+  schedule:
+    # 12:37 UTC = 7:37 AM New York in winter (EST). GitHub cron is UTC only and can run a few minutes late.
+    - cron: "37 12 * * *"
+  workflow_dispatch:
+
+concurrency: daily-brief
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      # The SQLite file is the agent's memory. Restore the newest copy, save a new one after.
+      - name: Restore memory
+        uses: actions/cache/restore@v4
+        with:
+          path: data/market_watch.db
+          key: mw-db-${{ github.run_id }}
+          restore-keys: mw-db-
+
+      - name: Run agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          MW_PRICE_INPUT_PER_MTOK: ${{ vars.MW_PRICE_INPUT_PER_MTOK }}
+          MW_PRICE_OUTPUT_PER_MTOK: ${{ vars.MW_PRICE_OUTPUT_PER_MTOK }}
+          MW_PRICE_SEARCH_PER_1K: ${{ vars.MW_PRICE_SEARCH_PER_1K }}
+        run: market-watch run
+
+      - name: Save memory
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/market_watch.db
+          key: mw-db-${{ github.run_id }}
+
+      - name: Evals
+        run: python evals/run_evals.py -n 30
